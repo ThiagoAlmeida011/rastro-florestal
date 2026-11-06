@@ -1,3 +1,5 @@
+> Atualização de 06/11/2026: o fluxo vigente não tem validação manual. Solicitar token inicia 120 horas; depois o app libera etiqueta PNG contendo apenas QR com os dados do produto/processo. Há antecipação DEMO para pitch. Leia o contexto atualizado em `integracoes/banco-de-dados/CONTEXTO.md` antes de usar as notas históricas abaixo. O commit local `3ff9401` foi criado para esse fluxo; o push automático encontrou bloqueios de permissão/autenticação e ainda precisa de confirmação remota.
+
 # Continuidade do Rastro Florestal em outro computador
 
 Este documento resume o trabalho anterior. Não é a transcrição completa do chat. Leia junto com README.md, o código atual e os contextos de integração.
