@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Leaf, Plus, ArrowLeft, ArrowUpRight, ChevronRight, Camera, MapPin, LockKeyhole, FileText, Package, Check, X, Info, AlertTriangle, History, Monitor, Sprout, LoaderCircle } from 'lucide-react';
-import { uid, listRecords, createRecord, renameRecord, addAttempt, appendAttempt, isComplete, discrepancies, storageErrorMessage } from './store';
+import { uid, listRecords, createRecord, renameRecord, addAttempt, appendAttempt, isComplete, discrepancies, storageErrorMessage, demoStatus, startDemoFinalization, expediteDemoFinalization, issueDemoToken, setProductType } from './store';
+import { labelImage } from './labels';
 import './style.css';
 import './campo.css';
 
@@ -12,7 +13,7 @@ import './campo.css';
  */
 const PHASE = { before: 'Antes da extração', after: 'Depois da extração' };
 /** Cria um produto de rascunho com identidade própria e históricos independentes. */
-const newProduct = () => ({ id: uid(), species: '', before: [], after: [] });
+const newProduct = () => ({ id: uid(), species: '', productType: '', before: [], after: [] });
 /** Formata o código para exibição; nunca usar esse texto como chave de identidade. */
 const formatCode = n => `#${String(n).padStart(4, '0')}`;
 /** Exibe um instante ISO no idioma e fuso do navegador do produtor. */
@@ -92,7 +93,7 @@ function Capture({ phase, onClose, onSave, demoEnabled }) {
     catch (e) { setError(e.message || 'Não foi possível salvar a foto. Tente novamente.'); setBusy(false); }
   }
   return <Modal title={PHASE[phase]} onClose={() => { if (!busy) onClose(); }}>
-    <p className="muted">Uma foto, uma localização. Cada envio preserva o histórico anterior.</p>
+    <p className="muted">Uma foto, uma localização. Cada envio preserva o histórico anterior. Em registro finalizado, salvar uma nova foto invalida a finalização e o token anteriores.</p>
     {camera ? <div className="camera"><video autoPlay playsInline muted ref={video}/><button className="primary" onClick={takePhoto}><Camera size={20}/> Capturar foto</button></div> : photo ? <Photo attempt={{photo}} className="capture-preview"/> : <div className="capture-placeholder"><Camera size={42}/><strong>Registre este momento</strong><span>Tire a foto com a câmera do aplicativo</span></div>}
     <div className="button-row"><button className="secondary" onClick={startCamera}><Camera size={19}/> {photo ? 'Tirar outra foto' : 'Abrir câmera'}</button></div>
     <label className="field">Localização desta tentativa<select value={locMode} onChange={e => {positionRequest.current++; setLocBusy(false); setLocMode(e.target.value); setPosition(null); setError(''); if (e.target.value === 'device' && photo) locate();}}><option value="device">Localização atual do dispositivo</option>{demoEnabled && <option value="demo">Localização de demonstração</option>}<option value="none">Salvar sem localização (incompleto)</option></select></label>
@@ -105,10 +106,70 @@ function Capture({ phase, onClose, onSave, demoEnabled }) {
   </Modal>;
 }
 /** Mostra a última foto, contador, alertas e ações; o histórico completo permanece preservado no produto. */
-function Evidence({ product, phase, onCapture, onHistory, editing }) {
+function Evidence({ product, phase, onCapture, onHistory }) {
   const attempts = product[phase], last = attempts.at(-1), warnings = discrepancies(product, phase);
   return <section className="evidence"><div className="evidence-heading"><h3>{PHASE[phase]}</h3><span className="count">{attempts.length} / 3</span></div>
     {last ? <><Photo attempt={last} className="evidence-photo"/><div className="evidence-body"><strong className="small">Tentativas: {attempts.length} de 3</strong><Location attempt={last}/>{warnings.length > 0 && <div className="warning"><AlertTriangle size={20}/><span><strong>Local diferente de outra foto.</strong><span>Confira o histórico. Diferença de até {Math.round(Math.max(...warnings.map(w => w.meters)))} m{last.location.source === 'demo' ? ' (simulada)' : ''}.</span></span></div>}<button className="text-button history-link" onClick={() => onHistory(product, phase)}><History size={16}/> Ver tentativas e locais</button><button className="secondary full" disabled={attempts.length >= 3} onClick={() => onCapture(product.id, phase)}><Camera size={19}/>{attempts.length >= 3 ? 'Limite atingido' : 'Nova tentativa'}</button></div></> : <button className="empty-photo" onClick={() => onCapture(product.id, phase)}><Camera size={28}/><strong>Tirar foto {phase === 'before' ? 'antes' : 'depois'}</strong><span>Captura pela câmera do aplicativo</span></button>}
+  </section>;
+}
+/** A imagem contém somente o QR. O diálogo de impressão é aberto pelo usuário. */
+function PrintableLabel({ label }) {
+  const [url, setUrl] = useState(''), [error, setError] = useState('');
+  useEffect(() => {
+    let active = true;
+    labelImage(label.payload).then(value => { if (active) setUrl(value); }).catch(e => { if (active) setError(e.message); });
+    return () => { active = false; };
+  }, [label]);
+  function print() {
+    const frame = document.createElement('iframe');
+    frame.title = 'Impressão da etiqueta QR';
+    frame.style.cssText = 'position:fixed;width:0;height:0;border:0';
+    document.body.append(frame);
+    const doc = frame.contentDocument;
+    doc.open(); doc.write('<!doctype html><html><head><title>Etiqueta QR</title><style>@page{margin:10mm}body{margin:0}img{display:block;width:100mm;height:100mm;max-width:100%}</style></head><body></body></html>'); doc.close();
+    const img = doc.createElement('img'); img.alt = 'Etiqueta QR Verdefica';
+    img.onload = () => { frame.contentWindow.focus(); frame.contentWindow.print(); };
+    frame.contentWindow.onafterprint = () => frame.remove();
+    img.src = url; doc.body.append(img);
+  }
+  return <article className="printable-label"><h3>{label.payload.tipo} · {label.payload.especie}</h3>
+    <p className="small muted">Etiqueta DEMO · o QR contém produto, coordenadas, datas e etapas. As fotos permanecem no aplicativo de origem.</p>
+    {error ? <p className="error" role="alert">{error}</p> : url ? <><img className="qr-preview" src={url} alt="Etiqueta QR para imprimir e colar na mercadoria"/><div className="button-row"><a className="secondary" href={url} download={`etiqueta-${label.productId}.png`}>Baixar imagem PNG</a><button className="primary" onClick={print}>Imprimir etiqueta</button></div></> : <p role="status">Preparando imagem QR…</p>}
+    <p className="small muted">Impressão sugerida: 10 × 10 cm, sem cortar a borda branca. Confira a leitura antes de colar na mercadoria.</p>
+  </article>;
+}
+function ProductType({ product, onSave, busy }) {
+  const [value, setValue] = useState(product.productType || '');
+  return <form className="product-type-form" onSubmit={e => { e.preventDefault(); onSave(value); }}><label className="field">Tipo de produto<input required maxLength={100} value={value} onChange={e => setValue(e.target.value)} placeholder="Ex.: Madeira em tora"/></label><button className="secondary" disabled={busy || value.trim() === product.productType}>Salvar tipo de produto</button></form>;
+}
+/** A solicitação inicia 120 horas; a etiqueta é emitida automaticamente com o app aberto. */
+function DemoFinalization({ record, demo, busy, onAction }) {
+  const [now, setNow] = useState(Date.now());
+  const attempted = useRef(null);
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  const state = demoStatus(record, now), flow = record.demoFinalization;
+  useEffect(() => {
+    if (state === 'eligible' && !busy && attempted.current !== flow.id) {
+      attempted.current = flow.id; onAction(issueDemoToken);
+    }
+  }, [state, busy, flow?.id, onAction]);
+  const minutes = flow ? Math.max(0, Math.ceil((Date.parse(flow.availableAt) - now) / 60000)) : 0;
+  return <section className="finalization form-card" aria-label="Prazo para envio do token">
+    <h2><Check size={22}/> Prazo para envio do token</h2>
+    <p>Envie o registro completo e receba o token em forma de etiqueta QR em até 5 dias.</p>
+    <p className="small muted">Demonstração local: a etiqueta será liberada ao completar cinco dias após a solicitação.</p>
+    {state === 'incomplete' && <p role="status">Complete tipo de produto, espécie e ao menos uma foto com coordenadas válidas em cada etapa de todos os produtos.</p>}
+    {state === 'ready' && <button className="primary full" disabled={busy} onClick={() => onAction(startDemoFinalization)}>Solicitar token · prazo de 5 dias</button>}
+    {flow?.startedAt && <><p role="status"><strong>Token solicitado.</strong><br/>Solicitação: {time(flow.startedAt)}<br/>Liberação prevista: <strong>{time(flow.availableAt)}</strong></p>
+      <p className="small muted">Nova evidência ou mudança do tipo de produto invalida esta solicitação e exige um novo ciclo. Renomear preserva a etiqueta já emitida.</p>
+      {state === 'waiting' && <p role="status">Aguardando cinco dias após a solicitação · faltam {Math.floor(minutes / 1440)} dias, {Math.floor(minutes % 1440 / 60)} h e {minutes % 60} min.</p>}
+      {state === 'waiting' && demo && <button className="secondary full" disabled={busy} onClick={() => onAction(expediteDemoFinalization)}>Antecipar 5 dias para o pitch</button>}
+      {flow.expeditedAt && <p className="demo-banner">Espera antecipada para o pitch em {time(flow.expeditedAt)}. Essa simulação também consta nos dados do QR.</p>}
+      {state === 'eligible' && <><p role="status">Prazo cumprido. Liberando a imagem da etiqueta…</p><button className="secondary full" disabled={busy} onClick={() => onAction(issueDemoToken)}>Tentar liberar etiqueta novamente</button></>}
+      {state === 'issued' && <div role="status"><strong>Etiqueta liberada em {time(flow.issuedAt)}</strong>{flow.labels?.map(label => <PrintableLabel key={label.productId} label={label}/>)}</div>}
+    </>}
+    <p className="small muted">Se o app estiver fechado, a imagem aparecerá ao reabrir após o prazo. O relógio e o armazenamento são locais.</p>
+    {record.demoFinalizationHistory?.length > 0 && <details><summary>Ciclos anteriores invalidados ({record.demoFinalizationHistory.length})</summary>{record.demoFinalizationHistory.map((previous, i) => <div className="demo-token" key={previous.id || i}><strong>Ciclo invalidado</strong><span>{time(previous.invalidatedAt)}</span><span>Motivo: {previous.reason === 'product-type-changed' ? 'Tipo de produto alterado' : previous.reason === 'manual-validation-required' ? 'Ciclo anterior substituído' : 'Nova evidência adicionada'}</span>{previous.token && <code>{previous.token} · inválido</code>}</div>)}</details>}
   </section>;
 }
 /** Coordena navegação, rascunho, registro selecionado e mensagens; não grava dados diretamente no IndexedDB. */
@@ -131,7 +192,7 @@ function App() {
   async function saveRecord(e) {
     e.preventDefault(); if (busy) return; setBusy(true); setError('');
     try {
-      const saved = await createRecord({...draft, name: draft.name.trim(), producer: draft.producer.trim(), products: draft.products.map(p => ({...p, species: p.species.trim()})), updatedAt: new Date().toISOString()});
+      const saved = await createRecord({...draft, name: draft.name.trim(), producer: draft.producer.trim(), products: draft.products.map(p => ({...p, species: p.species.trim(), productType: p.productType?.trim()})), updatedAt: new Date().toISOString()});
       // A gravação já terminou. Atualiza a lista em memória sem tratar uma nova
       // consulta como parte da escrita, o que poderia reportar falsa falha e induzir repetição.
       setRecords(rows => [saved, ...rows.filter(r => r.id !== saved.id)]);
@@ -147,27 +208,43 @@ function App() {
    */
   async function saveAttempt(attempt) {
     if (view === 'new') setDraft(d => ({...d, products: d.products.map(p => p.id === capture.productId ? appendAttempt(p, capture.phase, attempt) : p)}));
-    else { const saved = await addAttempt(record.id, capture.productId, capture.phase, attempt); setRecord(saved); await refresh(); setToast('Foto salva neste dispositivo'); }
+    else { const hadFinalization = Boolean(record.demoFinalization); const saved = await addAttempt(record.id, capture.productId, capture.phase, attempt); setRecord(saved); await refresh(); setToast(hadFinalization ? 'Foto salva. Finalização anterior invalidada; finalize novamente.' : 'Foto salva neste dispositivo'); }
     setCapture(null);
+  }
+  async function finalizeDemo(action) {
+    if (busy) return;
+    setBusy(true); setError('');
+    try {
+      const saved = await action(record.id);
+      setRecord(saved);
+      setRecords(rows => rows.map(r => r.id === saved.id ? saved : r));
+      setToast('Solicitação/etiqueta salva neste dispositivo');
+    } catch (e) { setError(storageErrorMessage(e)); } finally { setBusy(false); }
+  }
+  async function saveType(productId, value) {
+    if (busy) return; setBusy(true); setError('');
+    try { const saved = await setProductType(record.id, productId, value); setRecord(saved); setRecords(rows => rows.map(r => r.id === saved.id ? saved : r)); setToast('Tipo salvo. Se havia solicitação, será necessário solicitar novamente.'); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   /** Atualiza a espécie somente no rascunho e preserva a identidade dos demais produtos. */
   function updateProduct(id, species) {setDraft(d => ({...d, products: d.products.map(p => p.id === id ? {...p, species} : p)}));}
-  return <><header className="topbar"><a className="brand" href="#" onClick={e => {e.preventDefault(); if (view !== 'list') back();}}><span className="brand-mark"><Leaf size={27}/></span><span>Rastro Florestal<small>DA ORIGEM AO REGISTRO</small></span></a><span className="local-indicator"><span/> Salvo no seu navegador</span></header>
+  return <><header className="topbar"><a className="brand" href="#" onClick={e => {e.preventDefault(); if (view !== 'list') back();}}><img className="brand-logo" src="/verdefica-logo.png" alt="Logo Verdefica"/><span>Verdefica<small>DA ORIGEM AO REGISTRO</small></span></a><span className="local-indicator"><span/> Salvo no seu navegador</span></header>
     <div className="app-layout"><aside className="sidebar"><div><span className="eyebrow">ESPAÇO DO PRODUTOR</span><button className={`nav-item ${view === 'list' ? 'active' : ''}`} onClick={() => view !== 'list' && back()}><FileText size={20}/> Meus registros <ChevronRight size={16}/></button></div><div className="sidebar-bottom"><Sprout size={30}/><h3>O cuidado começa<br/>na origem.</h3><p>Um registro de cada vez, uma floresta com mais história.</p><span className="small">Protótipo local · v1.0</span></div></aside>
     <main><div className="main-inner"><div className="context-row"><span className="breadcrumb">Produtor <ChevronRight size={13}/> {view === 'list' ? 'Meus registros' : view === 'new' ? 'Novo registro' : formatCode(record.code)}</span><label className="demo-toggle"><input type="checkbox" checked={demo} onChange={e => setDemo(e.target.checked)}/><Monitor size={15}/> Modo demonstração</label></div>
-    {demo && <div className="demo-banner"><Info size={18}/><span>Demonstração ativa: locais simulados estão disponíveis ao adicionar fotos.</span></div>}
+    {demo && <div className="demo-banner"><Info size={18}/><span>Demonstração ativa: locais simulados e antecipação da espera para o pitch estão disponíveis.</span></div>}
     {view !== 'list' && <button className="back text-button" onClick={back}><ArrowLeft size={19}/> Voltar aos registros</button>}
     {view === 'list' ? <><div className="page-heading"><div><span className="eyebrow">SUAS EVIDÊNCIAS, ORGANIZADAS</span><h1>Meus registros<span className="title-dot">.</span></h1><p>Toque em um registro para ver os produtos.</p></div><span className="heading-icon"><Leaf size={34}/></span></div>
       <div className="list-toolbar"><span>{records.length} {records.length === 1 ? 'registro' : 'registros'}</span><span><LockKeyhole size={14}/> Dados neste dispositivo</span></div>
-      {loading ? <div className="empty-state"><LoaderCircle className="spin"/>Abrindo seus registros…</div> : records.length ? <div className="records">{records.map(r => <button className="record-card" key={r.id} onClick={() => open(r)}><span className="record-icon"><FileText size={30}/></span><span className="record-text"><strong>{r.name}</strong><span>{formatCode(r.code)} <i/> {r.products.length} {r.products.length === 1 ? 'produto' : 'produtos'}</span></span><span className={`status ${isComplete(r) ? 'complete' : ''}`}>{isComplete(r) ? 'Completo' : 'Rascunho'}</span><ChevronRight className="record-chevron" size={24}/></button>)}</div> : <div className="empty-state"><span className="empty-icon"><Sprout size={43}/></span><h2>Seu primeiro registro começa aqui</h2><p>Reúna as árvores, as fotos e os locais<br/>de uma mesma área em um só lugar.</p><span className="empty-hint">Toque no + abaixo para começar</span></div>}
+      {loading ? <div className="empty-state"><LoaderCircle className="spin"/>Abrindo seus registros…</div> : records.length ? <div className="records">{records.map(r => <button className="record-card" key={r.id} onClick={() => open(r)}><span className="record-icon"><FileText size={30}/></span><span className="record-text"><strong>{r.name}</strong><span>{formatCode(r.code)} <i/> {r.products.length} {r.products.length === 1 ? 'produto' : 'produtos'}</span></span><span className={`status ${isComplete(r) ? 'complete' : ''}`}>{r.demoFinalization?.labels?.length ? 'Etiqueta DEMO' : r.demoFinalization?.startedAt ? 'Aguardando etiqueta' : r.demoFinalization ? 'Solicitar token' : isComplete(r) ? 'Completo' : 'Rascunho'}</span><ChevronRight className="record-chevron" size={24}/></button>)}</div> : <div className="empty-state"><span className="empty-icon"><Sprout size={43}/></span><h2>Seu primeiro registro começa aqui</h2><p>Reúna as árvores, as fotos e os locais<br/>de uma mesma área em um só lugar.</p><span className="empty-hint">Toque no + abaixo para começar</span></div>}
       <div className="create-area"><button className="new-button" aria-label="Novo registro" onClick={start}><Plus size={34}/><span>Novo registro</span></button></div><div className="list-note"><MapPin size={20}/><p><strong>Cada foto conta uma parte da história.</strong><br/>A localização fica junto de cada tentativa, dentro do registro.</p><ArrowUpRight size={22}/></div>
     </> : <><div className="page-heading compact"><div><span className="eyebrow">{view === 'new' ? 'UM NOVO COMEÇO' : `REGISTRO ${formatCode(record.code)}`}</span><h1>{view === 'new' ? 'Novo registro' : 'Editar registro'}<span className="title-dot">.</span></h1><p>{view === 'new' ? 'Adicione os produtos e registre suas evidências.' : 'Consulte as evidências e acompanhe cada tentativa.'}</p></div><span className="status">{isComplete(current) ? 'Completo' : 'Rascunho'}</span></div>
       {view === 'new' ? <form id="create-form" onSubmit={saveRecord}><div className="form-card"><h2><FileText size={20}/> Dados do registro</h2><div className="fields-grid"><label className="field">Nome do registro<input autoFocus required maxLength={100} placeholder="Ex.: Área do Rio" value={draft.name} onChange={e => setDraft({...draft, name: e.target.value})}/></label><label className="field">Nome do produtor<input required maxLength={100} placeholder="Digite seu nome" value={draft.producer} onChange={e => setDraft({...draft, producer: e.target.value})}/></label></div></div></form> : <div className="form-card"><form onSubmit={saveName}><label className="field">Nome do registro<div className="rename-row"><input required maxLength={100} value={name} onChange={e => setName(e.target.value)}/><button className="primary" disabled={busy}><Check size={18}/> Salvar nome</button></div></label></form><div className="saved-data"><LockKeyhole size={17}/><span>Dados salvos</span><strong>Produtor: {record.producer}</strong></div></div>}
       <div className="section-title"><h2>Produtos do registro</h2><span>{current.products.length} {current.products.length === 1 ? 'produto' : 'produtos'}</span></div>
-      {current.products.map((p,i) => <article className="product-card" key={p.id}><div className="product-heading"><span className="product-number"><Package size={22}/></span><div><h2>Produto {i+1}</h2><p>{view === 'new' ? 'Identificação e fotos da árvore' : p.species || 'Espécie não informada'}</p></div>{view === 'edit' && <LockKeyhole size={17}/>}</div>{view === 'new' && <label className="field species">Espécie da árvore<input form="create-form" maxLength={100} placeholder="Ex.: Ipê" value={p.species} onChange={e => updateProduct(p.id, e.target.value)}/></label>}<div className="evidence-grid">{['before','after'].map(phase => <Evidence key={phase} product={p} phase={phase} editing={view === 'edit'} onCapture={(productId, phase) => setCapture({productId, phase})} onHistory={(product, phase) => setHistory({product, phase})}/>)}</div><div className="product-note"><MapPin size={18}/><span>{view === 'new' ? 'Cada foto guarda sua própria localização. Você pode completar as evidências depois.' : 'Foto e localização são preservadas em cada tentativa. Até 3 envios por etapa.'}</span></div></article>)}
-      {view === 'new' ? <><button className="secondary full add-product" onClick={() => setDraft({...draft, products: [...draft.products, newProduct()]})}><Plus size={22}/> Adicionar outro produto</button><div className="save-footer"><p><LockKeyhole size={17}/> Sem internet? Seus dados ficam neste navegador.</p><button className="primary save-record" form="create-form" disabled={busy}>{busy ? 'Salvando…' : 'Salvar registro'}<Check size={21}/></button></div></> : <p className="end-note"><LockKeyhole size={16}/> Somente o nome pode ser alterado. Novas fotos são adicionadas ao histórico.</p>}
+      {current.products.map((p,i) => <article className="product-card" key={p.id}><div className="product-heading"><span className="product-number"><Package size={22}/></span><div><h2>Produto {i+1}</h2><p>{view === 'new' ? 'Identificação e fotos da árvore' : p.species || 'Espécie não informada'}</p></div>{view === 'edit' && <LockKeyhole size={17}/>}</div>{view === 'new' ? <label className="field species">Tipo de produto<input form="create-form" required maxLength={100} placeholder="Ex.: Madeira em tora" value={p.productType || ''} onChange={e => setDraft(d => ({...d, products: d.products.map(item => item.id === p.id ? {...item, productType: e.target.value} : item)}))}/></label> : <ProductType key={`${p.id}-${p.productType || ''}`} product={p} busy={busy} onSave={value => saveType(p.id, value)}/>}{view === 'new' && <label className="field species">Espécie da árvore<input form="create-form" maxLength={100} placeholder="Ex.: Ipê" value={p.species} onChange={e => updateProduct(p.id, e.target.value)}/></label>}<div className="evidence-grid">{['before','after'].map(phase => <Evidence key={phase} product={p} phase={phase} onCapture={(productId, phase) => setCapture({productId, phase})} onHistory={(product, phase) => setHistory({product, phase})}/>)}</div><div className="product-note"><MapPin size={18}/><span>{view === 'new' ? 'Cada foto guarda sua própria localização. Você pode completar as evidências depois.' : 'Foto e localização são preservadas em cada tentativa. Até 3 envios por etapa.'}</span></div></article>)}
+      {view === 'edit' && <DemoFinalization record={record} demo={demo} busy={busy} onAction={finalizeDemo}/>}
+      {view === 'new' ? <><button className="secondary full add-product" onClick={() => setDraft({...draft, products: [...draft.products, newProduct()]})}><Plus size={22}/> Adicionar outro produto</button><div className="save-footer"><p><LockKeyhole size={17}/> Sem internet? Seus dados ficam neste navegador.</p><button className="primary save-record" form="create-form" disabled={busy}>{busy ? 'Salvando…' : 'Salvar registro'}<Check size={21}/></button></div></> : <p className="end-note"><LockKeyhole size={16}/> Nome e tipo de produto podem ser alterados. Nova foto ou mudança de tipo exige nova solicitação; o histórico é preservado.</p>}
     </>}
-    {error && <p className="error" role="alert">{error}</p>}<footer className="footer"><Leaf size={16}/><span>Rastro Florestal</span><span>Feito para quem cuida da origem.</span></footer></div></main></div>
+    {error && <p className="error" role="alert">{error}</p>}<footer className="footer"><Leaf size={16}/><span>Verdefica</span><span>Feito para quem cuida da origem.</span></footer></div></main></div>
     {toast && <div role="status" className="toast"><Check size={19}/>{toast}</div>}
     {capture && <Capture phase={capture.phase} demoEnabled={demo} onClose={() => setCapture(null)} onSave={saveAttempt}/>}
     {history && <Modal title={`Tentativas · ${PHASE[history.phase].toLowerCase()}`} wide onClose={() => setHistory(null)}><p className="muted">As fotos anteriores continuam preservadas. Nenhuma tentativa pode ser editada.</p><div className="history-list">{history.product[history.phase].map(a => <article className="history-item" key={a.id}><Photo attempt={a}/><div><h3>Tentativa {a.number}</h3><p className="small">{time(a.capturedAt)}</p><span className="tag">{a.imageSource === 'camera' ? 'Câmera do aplicativo' : a.imageSource === 'native-camera' ? 'Câmera/seletor do celular' : a.imageSource === 'example' ? 'Ilustração de demonstração' : 'Imagem importada'}</span><Location attempt={a}/>{a.location && <p className="small muted">Horário da posição: {time(a.location.timestamp)}</p>}<p className="small muted">{a.imageSource === 'camera' ? 'Horário da captura no dispositivo' : 'Horário de inclusão, não da captura original'}: {time(a.capturedAt)}</p></div></article>)}</div></Modal>}

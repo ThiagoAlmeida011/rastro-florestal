@@ -1,3 +1,4 @@
+import { labelPayload } from './labels.js';
 /**
  * Persistência e regras do domínio. O MVP guarda o registro completo no IndexedDB:
  * registro → produtos → tentativas, incluindo imagens binárias e posições individuais.
@@ -155,7 +156,17 @@ export async function addAttempt(recordId, productId, phase, attempt) {
   const encoded = await encodeAttempt(attempt);
   return mutateRecord(recordId, record => {
     if (!record.products.some(p => p.id === productId)) throw new Error('Produto não encontrado.');
-    return { ...record, products: record.products.map(p => p.id === productId ? appendAttempt(p, phase, encoded) : p) };
+    const previous = record.products.find(p => p.id === productId);
+    const next = appendAttempt(previous, phase, encoded);
+    // Repetir uma tentativa já salva não invalida o resultado. Falhas também não gravam.
+    if (next === previous) return record;
+    const { demoFinalization, ...preserved } = record;
+    return { ...preserved,
+      ...(demoFinalization ? { demoFinalizationHistory: [...(record.demoFinalizationHistory || []), {
+        ...demoFinalization, invalidatedAt: new Date().toISOString(), reason: 'new-evidence', attemptId: attempt.id,
+      }] } : {}),
+      products: record.products.map(p => p.id === productId ? next : p),
+    };
   });
 }
 /**
@@ -182,3 +193,49 @@ export function discrepancies(product, phase) {
   if (!current?.location) return [];
   return [...product.before, ...product.after].filter(a => a.id !== current.id && a.location && a.location.source === current.location.source).map(a => ({ attempt: a, meters: distance(a.location, current.location), uncertainty: (a.location.accuracy || 0) + (current.location.accuracy || 0) })).filter(d => d.meters > ALERT_DISTANCE_M + d.uncertainty);
 }
+
+/** Finalização local demonstrativa, sem certificação ou emissão em blockchain. */
+export const DEMO_WAIT_MS = 5 * 24 * 60 * 60 * 1000;
+export const canFinalizeDemo = record => isComplete(record) && record.products.every(p => p.productType?.trim() &&
+  ['before', 'after'].every(phase => p[phase].some(a =>
+    (a.photo instanceof Blob && a.photo.size > 0 || a.photoData?.bytes?.byteLength > 0) &&
+    a.location && Number.isFinite(a.location.latitude) && Math.abs(a.location.latitude) <= 90 &&
+    Number.isFinite(a.location.longitude) && Math.abs(a.location.longitude) <= 180)));
+export function demoStatus(record, now = Date.now()) {
+  const flow = record.demoFinalization;
+  if (!flow?.startedAt) return canFinalizeDemo(record) ? 'ready' : 'incomplete';
+  if (flow.token && flow.labels?.length) return 'issued';
+  return flow.expeditedAt || now >= Date.parse(flow.availableAt) ? 'eligible' : 'waiting';
+}
+/** A solicitação inicia o prazo local de cinco dias, sem aprovação manual. */
+export const startDemoFinalization = id => mutateRecord(id, record => {
+  if (record.demoFinalization?.startedAt) return record;
+  if (!canFinalizeDemo(record)) throw new Error('Cada produto precisa de tipo, espécie e fotos antes/depois com coordenadas válidas.');
+  const now = Date.now(), startedAt = new Date(now).toISOString();
+  return { ...record, demoFinalization: { id: uid(), startedAt, availableAt: new Date(now + DEMO_WAIT_MS).toISOString() } };
+});
+/** O tipo pode ser informado em registros antigos; mudá-lo exige novo envio. */
+export const setProductType = (id, productId, value) => mutateRecord(id, record => {
+  const productType = value.trim();
+  if (!productType || productType.length > 100) throw new Error('Informe o tipo de produto (até 100 caracteres).');
+  const product = record.products.find(p => p.id === productId);
+  if (!product) throw new Error('Produto não encontrado.');
+  if (product.productType === productType) return record;
+  const { demoFinalization, ...rest } = record;
+  return { ...rest,
+    ...(demoFinalization ? { demoFinalizationHistory: [...(record.demoFinalizationHistory || []), { ...demoFinalization, invalidatedAt: new Date().toISOString(), reason: 'product-type-changed' }] } : {}),
+    products: record.products.map(p => p.id === productId ? { ...p, productType } : p),
+  };
+});
+/** A antecipação é explícita e auditável; não altera datas nem evidências originais. */
+export const expediteDemoFinalization = id => mutateRecord(id, record => {
+  if (!record.demoFinalization?.startedAt) throw new Error('Inicie o prazo para envio do token primeiro.');
+  if (record.demoFinalization.token || record.demoFinalization.expeditedAt) return record;
+  return { ...record, demoFinalization: { ...record.demoFinalization, expeditedAt: new Date().toISOString() } };
+});
+export const issueDemoToken = id => mutateRecord(id, record => {
+  if (record.demoFinalization?.token && record.demoFinalization.labels?.length) return record;
+  if (!canFinalizeDemo(record) || demoStatus(record) !== 'eligible') throw new Error('Aguarde cinco dias ou antecipe a espera para o pitch.');
+  const issuedAt = new Date(Date.now()).toISOString();
+  return { ...record, demoFinalization: { ...record.demoFinalization, token: record.demoFinalization.token || `DEMO-${record.demoFinalization.id || record.id}`, issuedAt, labels: record.products.map(p => ({ productId: p.id, payload: labelPayload(record, p, record.demoFinalization, issuedAt) })) } };
+});

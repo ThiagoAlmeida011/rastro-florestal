@@ -267,3 +267,26 @@ svg { stroke-width: 2.2; }
   .page-heading h1, .compact h1 { font-size: 30px; }
   .record-text strong { font-size: 22px; }
 }
+
+/* Finalização demonstrativa e token legível em telas pequenas. */
+.finalization { border-top: 5px solid var(--green); }
+.finalization > p { line-height: 1.6; margin: 16px 0; }
+.finalization h2 { display: flex; align-items: center; gap: 8px; }
+.finalization .demo-banner { display: block; }
+.demo-token { display: grid; gap: 12px; padding: 18px; background: #edf3e6; border: 2px solid #4b7047; border-radius: 5px; }
+.demo-token code { overflow-wrap: anywhere; user-select: all; font-size: 17px; }
+
+.review-check { display: flex; align-items: flex-start; gap: 12px; margin: 22px 0; line-height: 1.5; }
+.review-check input { width: 24px; height: 24px; flex-shrink: 0; }
+.qr-preview { display: block; width: min(100%, 440px); height: auto; margin: 18px auto; background: white; }
+.printable-label { margin-top: 24px; border-top: 2px solid #596b5b; padding-top: 20px; }
+.printable-label h3 { overflow-wrap: anywhere; }
+.printable-label .button-row { display: flex; flex-wrap: wrap; gap: 12px; }
+.printable-label a.secondary { display: flex; align-items: center; justify-content: center; text-decoration: none; }
+.product-type-form { display: grid; gap: 12px; margin-bottom: 24px; }
+.finalization details { margin-top: 20px; }
+.finalization summary { padding: 14px 0; cursor: pointer; }
+
+/* Logo fornecido para a marca Verdefica. */
+.brand-logo { width: 76px; height: 76px; object-fit: contain; background: #fff; border-radius: 50%; flex-shrink: 0; }
+@media (max-width: 600px) { .brand-logo { width: 62px; height: 62px; } }

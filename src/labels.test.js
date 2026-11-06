@@ -1,0 +1,34 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import jsQR from 'jsqr';
+import { PNG } from 'pngjs';
+import { labelPayload, labelImage } from './labels.js';
+const stamp = '2026-11-06T12:00:00.000Z';
+const evidence = n => ({number:n, capturedAt:stamp,includedAt:stamp,imageSource:'camera',location:{latitude:-3.11912345,longitude:-60.02171234,source:'device',accuracy:12,timestamp:stamp}});
+const product = {id:'p-123',productType:'Madeira em tora',species:'Ipê',before:[evidence(1)],after:[evidence(1)]};
+const record = {id:'r-123',code:1,name:'Área do Rio',producer:'João',createdAt:stamp};
+const flow = {startedAt:stamp,availableAt:'2026-11-11T12:00:00.000Z'};
+test('PNG QR é decodificável e contém o histórico e solicitação completos', async () => {
+ const payload = labelPayload(record,product,flow,flow.availableAt);
+ const image = await labelImage(payload);
+ assert.ok(image.startsWith('data:image/png;base64,'));
+ const png = PNG.sync.read(Buffer.from(image.split(',')[1],'base64'));
+ const decoded = jsQR(new Uint8ClampedArray(png.data),png.width,png.height);
+ assert.ok(decoded,'O QR deve ser legível');
+ assert.deepEqual(JSON.parse(decoded.data),payload);
+ assert.equal(payload.tipo,'Madeira em tora');
+ assert.equal(payload.antes[0].local.lat,product.before[0].location.latitude);
+ assert.equal(payload.solicitado,stamp);
+ assert.equal(payload.validacao,undefined);
+ assert.equal(payload.antecipacaoPitch,null);
+});
+test('seis tentativas e textos longos geram uma imagem legível sem omitir etapas', async () => {
+ const fullProduct = {...product,before:[1,2,3].map(evidence),after:[1,2,3].map(evidence)};
+ const payload = labelPayload({...record,name:'Área de coleta '.repeat(6),producer:'João da Silva '.repeat(6)},fullProduct,{...flow,expeditedAt:stamp},stamp);
+ const image = await labelImage(payload);
+ const png = PNG.sync.read(Buffer.from(image.split(',')[1],'base64'));
+ const decoded = jsQR(new Uint8ClampedArray(png.data),png.width,png.height);
+ assert.deepEqual(JSON.parse(decoded.data),payload);
+ assert.equal(payload.depois.length,3);
+ assert.equal(payload.antecipacaoPitch,stamp);
+});
