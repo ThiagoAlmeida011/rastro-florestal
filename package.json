@@ -1,0 +1,24 @@
+{
+  "name": "rastro-florestal",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npm run build && npm run preview",
+    "mobile": "npm run build && vite preview --host 0.0.0.0 --port 5173 --strictPort",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5173 --strictPort",
+    "test": "node --test src/*.test.js scripts/*.test.js",
+    "mobile:https": "npm run build && node scripts/https-local.mjs"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.0.0",
+    "node-forge": "^1.4.3",
+    "vite": "^6.0.0"
+  }
+}

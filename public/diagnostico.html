@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="pt-BR"><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Diagnóstico · Rastro Florestal</title>
+<style>body{background:#f7f9f6;color:#173c29;font:16px/1.6 system-ui;max-width:700px;margin:30px auto;padding:24px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:white;border:1px solid #cddbc8;padding:20px;border-radius:10px;font:14px/1.7 monospace}a{color:#075331}h1{font-size:26px}</style>
+<h1>Conexão HTTPS funcionando</h1><p>Se você vê este título, o celular conseguiu carregar esta página do notebook. Ela funciona independentemente do aplicativo.</p>
+<pre id="result">JavaScript ainda não executou. Se esta mensagem continuar, confira se JavaScript está habilitado no navegador.</pre>
+<p>Envie uma captura desta tela para identificar a falha. Os resultados ficam somente nesta página e não são enviados ao servidor.</p><p><a href="/">Abrir o aplicativo</a></p>
+<script>
+(async function(){
+  var result=document.getElementById('result');
+  var lines=['Endereço: '+location.origin,'Contexto seguro: '+(window.isSecureContext?'sim':'não'),'Câmera integrada disponível: '+!!(navigator.mediaDevices&&navigator.mediaDevices.getUserMedia),'API de localização disponível: '+!!navigator.geolocation,'Armazenamento IndexedDB disponível: '+!!window.indexedDB,'Navegador: '+navigator.userAgent];
+  function show(){result.textContent=lines.join('\n');}show();
+  try{
+    var response=await fetch('/',{cache:'no-store'});lines.push('Página do aplicativo: HTTP '+response.status);show();
+    var html=await response.text();var doc=new DOMParser().parseFromString(html,'text/html');
+    var assets=Array.from(doc.querySelectorAll('script[src],link[rel="stylesheet"]')).map(function(el){return el.getAttribute('src')||el.getAttribute('href');});
+    for(var i=0;i<assets.length;i++){var url=new URL(assets[i],location.origin);if(url.origin!==location.origin)continue;var r=await fetch(url.href,{cache:'no-store'});lines.push((r.ok?'OK':'FALHA')+' '+url.pathname+' · HTTP '+r.status);show();}
+  }catch(e){lines.push('Falha de conexão: '+e.message);show();}
+})();
+</script></html>
