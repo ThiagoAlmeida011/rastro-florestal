@@ -1,65 +1,165 @@
-# Contexto da frente de banco de dados
+# Contexto para o back-end — Rastro Florestal
 
-## Situação atual
+Atualizado em **06/11/2026**, a partir da implementação local. Este documento é um handoff técnico; separa o que existe dos contratos propostos. Leia o código antes de alterar regras.
 
-O Rastro Florestal é uma aplicação web React executada no notebook. O celular acessa o servidor HTTPS da mesma rede. O servidor entrega arquivos estáticos e certificados públicos; **não recebe nem armazena registros**. Cada navegador e origem guarda seus próprios dados em IndexedDB. Não há autenticação, API, sincronização ou banco remoto neste recorte.
+## Decisão vigente do produto
 
-O tema visual de uso no campo foi aplicado em `src/campo.css`. Não é necessário reconstruir as telas para desenvolver a camada de dados.
+**Não existe mais validação manual.** O usuário removeu o formulário de responsável e a aprovação. O fluxo atual é:
 
-## O que o produtor faz
+1. Cadastrar produtor, registro e produtos com tipo e espécie.
+2. Capturar fotos antes/depois com coordenadas por tentativa.
+3. Salvar e tocar em **Solicitar token · prazo de 5 dias**.
+4. A solicitação inicia **120 horas corridas**, sem etapa de aprovação.
+5. Ao cumprir o prazo, liberar uma etiqueta **somente com QR code**, por produto, para baixar em PNG e imprimir/colar na mercadoria.
+6. No modo demonstração, **Antecipar 5 dias para o pitch** permite apresentar a liberação. A antecipação é registrada no QR e não muda o prazo original.
 
-1. Na lista, toca em Novo registro.
-2. Preenche nome do registro e produtor; inclui um ou mais produtos com espécie.
-3. Tira fotos antes/depois pela câmera integrada. Cada tentativa guarda sua posição, precisão e horários. Não há importação de imagens novas.
-4. Salva o registro, mesmo incompleto, e retorna à lista.
-5. Ao abrir um registro salvo, pode alterar somente o nome. Produtor e espécies permanecem em consulta. Novas fotos acrescentam evidências, sem substituir as anteriores.
+O usuário escolheu **QR com os dados**, sem hash impresso. O identificador `DEMO-...` ainda existe internamente para idempotência da emissão; não representa hash criptográfico, NFT, blockchain, autenticação ou certificação. Não reintroduzir aprovação manual nem integrar IA por inferência deste contexto.
 
-No cadastro, as evidências ficam em memória até Salvar registro. Na edição, uma nova tentativa é gravada imediatamente. Cancelar a captura não consome tentativa; uma tentativa salva sem localização conta para o limite e mantém a evidência incompleta.
+## Projeto e execução
 
-## Modelo implementado
+Aplicação web **React 19 + Vite 6**, não o projeto Expo de outro diretório.
 
-| Entidade | Campos relevantes |
+Pasta que contém `package.json` neste notebook:
+
+```text
+C:\Users\ROBOTICA\Desktop\Nova pasta\rastro-florestal-main\rastro-florestal-main
+```
+
+```powershell
+npm.cmd install
+npm.cmd test
+npm.cmd run build
+npm.cmd run mobile:https
+```
+
+Instalação é necessária só quando faltam dependências. O último conjunto de testes executado tem **19 testes passando**, incluindo decodificação da imagem QR. Câmera, GPS e impressão física ainda exigem teste no aparelho.
+
+`scripts/https-local.mjs` serve `dist` por HTTPS e uma página HTTP para instalar o certificado público. **Não recebe registros nem fotos.** Não há API, servidor de negócio, login, banco remoto, sincronização, serviço de IA ou página pública de consulta implementados. O celular precisa estar na mesma rede do notebook. Use o IP exibido na execução atual.
+
+Preserve `.local-https`, os dados do navegador, o histórico de tentativas e o código existente. Não faça limpeza de IndexedDB nem substitua este app por outro framework. `.local-https`, `node_modules` e `dist` estão no `.gitignore`; nunca publicar chaves `.key`.
+
+## Persistência e modelo atuais
+
+Banco IndexedDB `rastro-florestal`, versão **1**, object store `records`, chave `id`. Não houve migração destrutiva para adicionar o token.
+
+| Entidade | Campos atuais |
 | --- | --- |
-| Registro | `id` UUID, `code` código local amigável, `name`, `producer`, `createdAt`, `updatedAt`, `products` |
-| Produto | `id` UUID, `species`, `before`, `after` |
-| Tentativa | `id` UUID, `number`, `photo`, `imageSource`, `capturedAt`, `includedAt`, `location` |
-| Posição | `source` (`device` ou `demo`), `latitude`, `longitude`, `accuracy` em metros, `timestamp` |
+| Registro | `id` UUID, `code` sequencial local, `name`, `producer`, `createdAt`, `updatedAt`, `products`, `demoFinalization?`, `demoFinalizationHistory?` |
+| Produto | `id` UUID, `productType`, `species`, `before[]`, `after[]` |
+| Tentativa | `id` UUID, `number`, `photo` (Blob na UI), `imageSource`, `capturedAt`, `includedAt`, `location` ou `null` |
+| Localização | `source`: `device` ou `demo`, `latitude`, `longitude`, `accuracy` em metros, `timestamp` |
+| Ciclo ativo | `id`, `startedAt`, `availableAt`, `expeditedAt?`, `token?`, `issuedAt?`, `labels?` |
+| Etiqueta | `productId`, `payload` (snapshot JSON dos dados da emissão) |
+| Ciclo invalidado | Campos do ciclo anterior + `invalidatedAt`, `reason`, `attemptId?` |
 
-`location` pode ser `null`. Novas fotos usam `imageSource: camera`; históricos antigos podem conter `imported`, `native-camera` ou `example`. Não apagar nem reclassificar esses dados antigos.
+`productType` pode faltar em registros antigos. A tela permite preenchê-lo sem apagar evidências. `validatedAt`/`validatedBy` podem existir em ciclos de uma versão intermediária; são dados legados preservados, não requisitos do fluxo vigente. Ciclos existentes mantêm seu prazo original; etiquetas já emitidas mantêm seu snapshot.
 
-A interface usa `photo` como Blob. Para contornar uma falha WebKit ao gravar Blob, a camada local persiste `photoData: { format: "array-buffer-v1", bytes: ArrayBuffer, type: MIME }` e reconstrói o Blob na leitura. Não é base64 e não há recompressão nessa conversão. Registros legados com Blob continuam legíveis.
+A UI recebe `photo` como Blob. O armazenamento novo usa `photoData: {format: 'array-buffer-v1', bytes: ArrayBuffer, type: MIME}` e reconstrói o Blob na leitura, sem base64/recompressão. Blob legado continua legível. Não envie URLs temporárias `blob:` à API como se fossem arquivos acessíveis; envie os bytes binários com MIME.
 
-## Regras que a futura API precisa preservar
+No cadastro, o rascunho fica em memória até **Salvar registro**. No registro salvo, a nova tentativa é persistida imediatamente. Dados pertencem ao navegador/perfil/origem: protocolo, IP e porta. O notebook não recebe automaticamente os dados do iPhone.
 
-- IDs estáveis independentemente de conectividade; nomes não são identidades.
-- Até três tentativas por produto **e por etapa**. Primeira foto = tentativa 1.
-- Validação atômica no servidor e idempotência por ID da tentativa, inclusive em concorrência.
-- Imagem e metadados preservados juntos; nada de sobrescrever uma evidência existente.
-- Atualização de nome separada da inclusão de evidências.
-- Estados de rascunho/completo separados de estados futuros de envio/sincronização.
-- O critério atual de completo exige espécie e uma evidência com posição em cada etapa de todos os produtos. Posições de demonstração também contam nesse critério local; isso não deve ser confundido com validação real.
-- Código amigável atualmente é sequencial somente dentro do navegador. Sua atribuição global precisará ser decidida antes da sincronização entre dispositivos.
+## Regras atuais que a integração deve preservar
 
-## Pontos de integração propostos — ainda não implementados
+- Até **três tentativas por produto e por etapa**, com contadores independentes de `before`/`after`. Cancelar captura não consome tentativa; salvar sem localização consome e fica incompleto.
+- Evidências são acrescentadas, nunca substituídas. Repetir o mesmo ID é idempotente. Limite e escrita são validados numa transação atômica inclusive entre abas concorrentes.
+- `isComplete` é o critério visual antigo: espécie e ao menos uma posição em cada etapa de todos os produtos. **Não basta para solicitar token.**
+- `canFinalizeDemo` exige também `productType`, foto não vazia e coordenadas numéricas finitas nos limites de latitude/longitude em ao menos uma tentativa de cada etapa. Fotos sem localização permanecem no histórico.
+- Coordenadas `demo` contam para a demonstração, identificadas como simuladas. Não apresentá-las como GPS real em produção.
+- `startDemoFinalization` inicia o ciclo uma única vez: repetir a solicitação não reinicia a contagem.
+- `availableAt = startedAt + 5 * 24 * 60 * 60 * 1000`; não são cinco dias úteis, nem liberação à meia-noite do quinto dia.
+- `demoStatus` retorna `incomplete`, `ready`, `waiting`, `eligible` ou `issued`. Esses estados são calculados, não gravados como um campo `status`.
+- No prazo, a UI chama `issueDemoToken` automaticamente. Com o app fechado, só emite ao reabrir; não há worker, push ou notificação.
+- A emissão é idempotente e salva todos os snapshots de etiquetas junto com o token no ciclo ativo. Uma etiqueta por produto, dentro de um ciclo por registro.
+- Nova tentativa efetivamente adicionada invalida o ciclo ativo e o arquiva com `reason: 'new-evidence'` e `attemptId`. Falha de gravação, tentativa repetida ou quarta tentativa rejeitada não invalidam.
+- Alteração real de `productType` invalida e arquiva o ciclo com `reason: 'product-type-changed'`. Salvar o mesmo tipo não invalida.
+- Renomear o registro preserva o ciclo e os snapshots de etiquetas emitidas. Nova emissão após invalidação recebe outro ID de ciclo e outro token.
+- `producer` e `species` não são editáveis em registros salvos. Não inventar outros fluxos de edição na API sem alinhamento.
 
-O ponto de partida é `src/store.js`. Seus métodos públicos são `listRecords`, `createRecord`, `renameRecord` e `addAttempt`. A UI não deve conhecer tabelas SQL ou credenciais de armazenamento remoto.
+## Conteúdo e limites da etiqueta
 
-Discutir com o frontend uma camada de repositório que mantenha os dados locais e acrescente uma fila de sincronização. Uma API poderá ter operações para consultar/criar registros, alterar nome e acrescentar tentativas a um produto/etapa. Nomes de rotas, payloads, autenticação e estratégia de upload **ainda precisam ser acordados**.
+`src/labels.js` define o payload. O QR armazena **JSON diretamente**, não uma URL. Exemplo ilustrativo reduzido (a implementação inclui todos os históricos de tentativas):
 
-As fotos devem ser enviadas como arquivos binários para armazenamento apropriado; guardar referência e metadados no banco é uma possibilidade de arquitetura, não uma infraestrutura já escolhida. O servidor precisa confirmar a persistência antes de marcar um envio como concluído.
+```json
+{
+  "app": "Rastro Florestal",
+  "versao": 1,
+  "modo": "DEMO",
+  "aviso": "Demonstracao local; sem certificacao externa. Fotos no app de origem.",
+  "registro": "uuid-do-registro",
+  "codigo": 1,
+  "nome": "Área do Rio",
+  "produtor": "Produtor de exemplo",
+  "produto": "uuid-do-produto",
+  "tipo": "Madeira em tora",
+  "especie": "Ipê",
+  "criado": "2026-11-06T12:00:00.000Z",
+  "solicitado": "2026-11-06T12:00:00.000Z",
+  "liberacaoPrevista": "2026-11-11T12:00:00.000Z",
+  "antecipacaoPitch": null,
+  "emitido": "2026-11-11T12:00:00.000Z",
+  "antes": [{
+    "tentativa": 1,
+    "captura": "2026-11-06T11:00:00.000Z",
+    "inclusao": "2026-11-06T11:00:00.000Z",
+    "imagem": "camera",
+    "local": {"lat": -3.119, "lon": -60.0217, "origem": "demo", "precisao": 0, "data": "2026-11-06T11:00:00.000Z"}
+  }],
+  "depois": []
+}
+```
 
-## Arquivos e validação
+O `depois` vazio no exemplo é abreviação, não um registro elegível. Cada tentativa é serializada com número, captura, inclusão, origem da imagem e localização completa (ou `null` para tentativas incompletas). IDs individuais de tentativas e bytes das fotos **não** são incluídos neste QR v1; ficam no registro de origem. O backend deve conservar os IDs para auditoria.
 
-- `src/main.jsx`: fluxo das telas e captura.
-- `src/store.js`: formato local, transações, limite e cálculo de distância.
-- `src/store.test.js`: concorrência, idempotência, fidelidade dos bytes e compatibilidade com Blob legado.
-- `scripts/https-local.mjs`: apenas servidor estático de desenvolvimento.
-- Execute `npm.cmd test` e `npm.cmd run build` na raiz do projeto.
+PNG de 1200 px, preto/branco, correção M e margem de quatro módulos, pela biblioteca `qrcode`. A UI oferece download e impressão sugerida de 10 × 10 cm. Há limite de capacidade do QR; geração pode falhar com textos muito extensos e o app informa o erro. Não truncar dados silenciosamente. O JSON exige leitor que aceite QR com texto; não há página para o destinatário abrir as fotos.
 
-## Questões para decidir em equipe
+A etiqueta DEMO contém produtor e coordenadas. Uma futura publicação desses dados precisa de definição de acesso/consentimento, sem presumir que todos os campos serão públicos. Um QR impresso com dados estáticos não consulta invalidações posteriores: arquivo do ciclo local não revoga fisicamente uma etiqueta já colada. Link público verificável, assinatura, hash, consulta de revogação e autenticação são decisões futuras, não capacidades atuais.
 
-Quem é o produtor autenticado? Como atribuir códigos globais? Como exportar/migrar dados locais? Como tratar conflitos e retomada de uploads? Onde guardar arquivos e quem terá acesso? Como separar dados de demonstração dos reais na futura plataforma?
+## Onde conectar o back-end
 
-## Texto para iniciar um chat desta frente
+| Arquivo/função | Papel |
+| --- | --- |
+| `src/store.js` | Fronteira pública de persistência e regras; preservar assinaturas da UI ou criar adaptador |
+| `listRecords`, `createRecord` | Consulta/cadastro e código amigável local |
+| `renameRecord`, `setProductType` | Alterações separadas e invalidação do tipo |
+| `appendAttempt`, `addAttempt` | Inclusão imutável, limite e idempotência |
+| `startDemoFinalization` | Solicitar token sem aprovação |
+| `expediteDemoFinalization` | Antecipação somente para demonstração; hoje a restrição de visibilidade está na UI |
+| `issueDemoToken`, `demoStatus` | Liberação/estado calculado; hoje o tempo é do dispositivo |
+| `src/labels.js` | Snapshot, serialização JSON e geração da imagem QR |
+| `src/main.jsx` | Telas, captura, temporizador, emissão automática, download e impressão |
+| `src/store.test.js`, `src/labels.test.js` | Regressões e teste de decodificação do PNG |
 
-> Trabalhe na frente de banco de dados do Rastro Florestal. Leia este contexto, o README e src/store.js. O aplicativo local deve continuar funcionando. Proponha primeiro o modelo persistente e o contrato de integração, identificando decisões pendentes. Preserve IDs, histórico imutável, localização por foto e limite atômico de três tentativas por etapa. Não considere a API ou a sincronização como existentes e não inclua credenciais no frontend.
+## Contrato sugerido para discutir — NÃO implementado
+
+Nenhum framework, provedor, ORM ou banco foi escolhido nesta entrega. Uma proposta de operações para um adaptador:
+
+| Operação sugerida | Responsabilidade no servidor |
+| --- | --- |
+| Criar/consultar registro | Identidade estável, autoria e escopo de acesso |
+| Atualizar nome | Preservar histórico e ciclo ativo |
+| Alterar tipo do produto | Invalidar ciclo de forma transacional quando o valor mudar |
+| Enviar evidência | Upload binário confirmado, metadados e limite atômico/idempotência |
+| Solicitar token | Conferir requisitos, fixar versão dos dados e prazo pelo relógio do servidor |
+| Consultar solicitação/etiquetas | Estado autoritativo, datas e snapshots imutáveis por produto |
+| Antecipar demonstração | Operação isolada e autorizada no ambiente demo; nunca confiar só no checkbox do frontend |
+
+O servidor deve manter `requestedAt`/`availableAt`/`issuedAt` autoritativos, retornando ISO UTC. `requestedAt` é nome proposto para a API, equivalente a `startedAt` atual, não um campo que já exista na persistência local. Repetir requests com a mesma chave de idempotência deve retornar a mesma solicitação/emissão. Limites, disponibilidade e autorização precisam ser conferidos no servidor, não apenas pela interface.
+
+Para emitir mesmo com o app fechado, decidir entre job agendado/worker e emissão idempotente sob consulta. Não criar tarefas só no cliente para prometer processamento em segundo plano. Tratar reprocessamento, falhas, retries e concorrência entre novas evidências e emissão: conferir a versão do conjunto de evidências no mesmo commit que grava a emissão, impedindo etiqueta de um ciclo invalidado.
+
+Fotos podem ficar em armazenamento de objetos com referências no banco, conforme arquitetura a definir. Só confirmar upload quando bytes e metadados estiverem duráveis; upload interrompido não deve criar tentativa fantasma. Planejar migração/sincronização sem apagar o IndexedDB, retomada offline, deduplicação por IDs, conflitos e isolamento por produtor.
+
+## Pendências para alinhar com a equipe
+
+- Identidade/autorização do produtor e acesso do destinatário da etiqueta.
+- Persistência remota, upload e política de retenção de fotos.
+- Sincronização dos registros locais entre aparelhos, códigos globais e resolução de conflitos.
+- Emissão com app fechado e política de retries.
+- Versão de evidências e consistência atômica entre invalidar/emitir.
+- QR estático atual versus futura consulta pública e revogação verificável.
+- Como manter o modo DEMO separado de produção, inclusive dados e antecipação.
+- Eventual análise externa/IA: não está integrada e não deve bloquear o fluxo atual sem novo requisito do usuário.
+
+## Pedido pronto para o GPT do colega
+
+> Você vai trabalhar no back-end do Rastro Florestal existente. Leia `integracoes/banco-de-dados/CONTEXTO.md`, `README.md`, `src/store.js`, `src/labels.js` e seus testes. A decisão vigente é solicitar token sem aprovação manual, esperar 120 horas e liberar uma etiqueta por produto, com somente QR contendo os dados do processo. No pitch há antecipação explícita DEMO. Preserve fotos, coordenadas por tentativa, datas, IDs, dados legados, limite atômico de três tentativas por etapa, idempotência e invalidação de ciclos por nova evidência ou alteração de tipo. Renomear preserva a emissão. Não há API, login, banco remoto, serviço de IA, blockchain ou página pública implementados. Proponha o contrato e um adaptador para a camada atual sem reconstruir a UI, distinguindo o que você implementar do que ficar proposto. Não reintroduza validação manual; não publique chaves nem dados locais. Antes de finalizar, teste prazo pelo relógio do servidor, concorrência, retries, invalidação, isolamento DEMO e manutenção do funcionamento offline. Registre arquivos alterados, comandos de teste e decisões pendentes.
