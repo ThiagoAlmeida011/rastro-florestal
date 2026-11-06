@@ -14,7 +14,7 @@ Cada produtor organiza produtos em registros nomeados e documenta as etapas ante
 - Até **3 tentativas por etapa de cada produto**, com histórico preservado.
 - Localização individual por foto, com precisão e horário quando disponíveis.
 - Salvamento de registros incompletos como rascunhos.
-- Edição somente do nome de registros já salvos.
+- Edição do nome e do tipo de produto em registros já salvos; alterar o tipo exige nova solicitação.
 - Avisos de diferença de localização para conferência.
 - Persistência de fotos e registros no navegador.
 - Modo de demonstração com posições simuladas identificadas; a foto continua sendo capturada pela câmera.
@@ -93,6 +93,20 @@ Consulte o [guia de HTTPS para iPhone e Android](docs/HTTPS-LOCAL.md) para confi
 
 No cadastro, campos e fotos ficam em memória até salvar o registro. Fechar ou atualizar a página antes disso pode perder o rascunho. Em um registro já salvo, uma nova tentativa é gravada ao confirmar a evidência.
 
+## Prazo para envio do token e etiqueta QR
+
+1. Complete tipo de produto, espécie e fotos antes/depois com coordenadas válidas em todos os produtos.
+2. Toque em **Solicitar token · prazo de 5 dias**. Não há aprovação manual nem campo de responsável.
+3. O prazo de **120 horas corridas** começa na solicitação. A data de solicitação e a previsão ficam salvas. Ao atingir o prazo com a tela aberta ou ao reabrir depois dele, a etiqueta é liberada automaticamente.
+4. Para o pitch, ative **Modo demonstração** e use **Antecipar 5 dias para o pitch**. A antecipação fica identificada também no QR.
+5. Baixe a imagem PNG ou use **Imprimir etiqueta**. Cada produto recebe uma imagem contendo somente o QR; a impressão sugerida é 10 × 10 cm, preservando a borda branca. Confira a leitura no aparelho antes de colar na mercadoria.
+
+O QR contém identificação do registro/produto, produtor, tipo, espécie, data de criação, todas as tentativas antes/depois com coordenadas, origem/precisão e datas, solicitação, previsão, antecipação e emissão. As fotos ficam no app de origem. Os dados são texto JSON dentro do QR; não há página pública de consulta.
+
+O protótipo permanece DEMO, local e sem certificação externa. O relógio do dispositivo controla o prazo. Não há notificação ou execução com o app fechado; a liberação ocorre ao reabrir após o prazo.
+
+Nova foto ou alteração do tipo invalida a solicitação/etiqueta e exige outro ciclo. Os ciclos anteriores permanecem no histórico. Renomear preserva a etiqueta emitida. Etiquetas já impressas não são revogadas fisicamente. Solicitações existentes mantêm o prazo original e as etiquetas já emitidas preservam seus dados.
+
 ## Modelo e regras
 
 ```text
@@ -159,7 +173,7 @@ npm.cmd test
 npm.cmd run build
 ```
 
-Os nove testes atuais verificam identificadores em HTTP, persistência, histórico, concorrência, idempotência, limites, falhas de gravação, fotos binárias, leitura legada, distâncias e certificados. Câmera, GPS e leitura sob sol precisam de validação no dispositivo real.
+Os testes verificam identificadores em HTTP, persistência, histórico, concorrência, idempotência, limites, falhas de gravação, fotos binárias, leitura legada, distâncias, certificados, prazo de cinco dias, antecipação de pitch, emissão idempotente e preservação das evidências. Câmera, GPS e leitura sob sol precisam de validação no dispositivo real.
 
 Para servir uma compilação já gerada:
 
@@ -189,3 +203,7 @@ Os contratos de integração ainda são propostas. As próximas decisões inclue
 | Câmera ou GPS bloqueados | Abra no navegador, use HTTPS confiável e confira permissões. |
 | Registros não aparecem | Confira navegador, perfil, protocolo, IP e porta do salvamento. |
 | Falha ao salvar | Leia o erro informado. Preserve a aba com o rascunho; não limpe os dados do site para tentar corrigir. |
+
+## Handoff para o back-end
+
+O [contexto atualizado de integração](integracoes/banco-de-dados/CONTEXTO.md) descreve o fluxo sem aprovação manual, modelo do IndexedDB, estados do prazo, snapshot da etiqueta QR, invalidação, compatibilidade com dados antigos e operações sugeridas para a API. Inclui um pedido pronto para iniciar o chat do colega e distingue implementação atual de propostas futuras.
