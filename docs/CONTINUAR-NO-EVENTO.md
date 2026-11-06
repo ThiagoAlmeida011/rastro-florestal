@@ -87,7 +87,9 @@ Não implementar infraestrutura remota sem nova orientação do usuário. Preser
 
 Destino informado pelo usuário: https://github.com/ThiagoAlmeida011/rastro-florestal
 
-O envio automático foi tentado e rejeitado com 403 Resource not accessible by integration, tanto na criação de árvore quanto na API de conteúdo. Não houve upload confirmado pelo agente. O usuário recebeu o ZIP para envio manual; confira o repositório atual antes de afirmar que já está atualizado ou substituir arquivos remotos.
+O envio pela integração retornou 403 Resource not accessible by integration. Foi criado o commit 6d3d8d2 via Git e o usuário confirmou o push para main pelo seu terminal após autenticação. README, ZIP antigo e arquivo teste já existiam no remoto e foram preservados nesse envio. Confira o repositório atual antes de substituir arquivos remotos.
+
+Depois do envio, a pasta foi organizada: o histórico .git foi incorporado à pasta principal rastro-florestal, mantendo dependências e certificados locais no mesmo caminho. A cópia rastro-florestal-repositorio foi arquivada fora da pasta de trabalho. Estudos visuais estão em docs/design e o roteiro de apresentação em docs/EVENTO.txt. Alterações desta organização podem aparecer como pendentes no Git; não confundir esses ajustes locais com um novo push confirmado.
 
 ## Forma de trabalhar com o usuário
 

@@ -150,6 +150,8 @@ docs/
 
 As funções principais possuem comentários em português sobre suas responsabilidades e decisões de implementação.
 
+Os estudos visuais anteriores estão organizados em [docs/design](docs/design/README.md). O roteiro de transferência para outro notebook está em [docs/EVENTO.txt](docs/EVENTO.txt), e o resumo para iniciar outro chat está em [docs/CONTINUAR-NO-EVENTO.md](docs/CONTINUAR-NO-EVENTO.md).
+
 ## Testes e compilação
 
 ```powershell
